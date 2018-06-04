@@ -1,20 +1,34 @@
+// Ryan Wu and Maksim Surguy, Spring 2018
+
+/*
+
+   This code runs on Trinket Pro and does the following:
+   - Reads temperature from a OneWire sensor and changes color of the lights accordingly
+   - Reads state of 10 buttons via one analog pin (!)
+   - Reads state of another button to enable / disable certain animations
+
+   This code uses a highly modified WS2812FX library for the lighting effects
+
+ */
+
 #include "Arduino.h"
 
-// include the AnalogMultiButton library
+// include the libraries
 #include <AnalogMultiButton.h>
 #include <Adafruit_NeoPixel.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+
+// Had to trim this library down to fit on the Trinket Pro
 #include <WS2812FX.h>
 
-
-// Data wire is plugged into pin 10 on the Trinket
+// Data wire is plugged into pin 10 on the Trinket Pro
 #define ONE_WIRE_BUS 10
-
-#define PIXEL_PIN    6 // Digital IO pin connected to the NeoPixels.
-#define PIXEL_COUNT 20
-
-const int BALL_HOLDER_BUTTON = 11;
+#define PIXEL_PIN    6        // Digital IO pin connected to the NeoPixels.
+#define PIXEL_COUNT 20        // How many LEDs
+#define BALL_HOLDER_BUTTON 11 // Which pin is the ball holder button connected to
+#define ACTIVE_COLOR 0xBDF609 // Which color to turn the LEDs with, when the ball is pressing on the
+                              // springs
 
 // Setup a oneWire instance to communicate with any OneWire devices
 // (not just Maxim/Dallas temperature ICs)
@@ -23,11 +37,10 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
 
-
 // arrays to hold device address
 DeviceAddress insideThermometer;
 
-// define the pin you want to use
+// define the pin you want to use for the 10 buttons (that work like a piano)
 const int BUTTONS_PIN = A0;
 
 // set how many buttons you have connected
@@ -59,26 +72,22 @@ const int BUTTON_10 = 9;
 // make an AnalogMultiButton object, pass in the pin, total and values array
 AnalogMultiButton buttons(BUTTONS_PIN, BUTTONS_TOTAL, BUTTONS_VALUES);
 
-// Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
-
 unsigned long last_change = 0;
 unsigned long now         = 0;
 unsigned long prevTime    = 0;
 
+// Initialize LED effects
 WS2812FX ws2812fx = WS2812FX(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 uint32_t colors[] = {  BLUE, RED, GREEN }; // create an array of colors
 
-
+// The following values are for state machine to read the temp sensor data
 #define D_MILLIS 1000                      // wait time after start conversion
 unsigned long Dtime;                       // last start time, millis
 byte Dflag;
 byte dstate;                               // state variable
 
-
 uint32_t tempToColor;
-
-#define ACTIVE_COLOR 0xBDF609
 
 // pass a fourth parameter to set the debounce time in milliseconds
 // this defaults to 20 and can be increased if you're working with particularly bouncy buttons
@@ -91,12 +100,8 @@ void setup() {
 
   ws2812fx.init();
   ws2812fx.setBrightness(255);
-
   ws2812fx.setSpeed(128);
-
-  // ws2812fx.setSegment(0, 0, 9, FX_MODE_COMET, colors, 2000, FADE_XSLOW);
   ws2812fx.start();
-
 
   // Start up the sensor library
   sensors.begin();
@@ -108,6 +113,7 @@ void setup() {
   sensors.setResolution(insideThermometer, 11);
 }
 
+// Function to manage state of the temperature sensor
 void Dstate()
 {
   switch (dstate)
@@ -129,13 +135,14 @@ void Dstate()
       temperature = sensors.getTempFByIndex(0);
     }
 
-    // }
     Dflag  = 1;
     dstate = 0; // get another
     break;
   }
 }
 
+// The following functions define what happens when each of the 10 buttons are pressed.
+// Doing it this way allows for many possibilities of visual effects being implemented
 uint16_t effect1(void) {
   WS2812FX::Segment seg = ws2812fx.getSegment();
 
@@ -264,205 +271,95 @@ uint32_t color_wheel(uint8_t pos) {
 void loop() {
   now = millis();
 
-  Dstate(); // do sensor reading
+  // Run the LED effects service
+  ws2812fx.service();
+
+  Dstate(); // get the sensor reading
 
   if (Dflag)
   {
+    // Uncomment this line to see the actual temperature reading
     // Serial.println(temperature);
     Dflag = 0;
   }
 
+  // Map temperature values to some range on the color wheel
   tempToColor = map(temperature, 70, 85, 200, 255);
 
-  ws2812fx.service();
-
+  // We need to do different things depending on the ball position in the socket
   if (digitalRead(BALL_HOLDER_BUTTON) == HIGH)
   {
-    // Ball is in the socket
+    // Ball is in the socket, shoot the rainbows!
     ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_RAINBOW_CYCLE, colors, 1, false);
 
     // Serial.println("BALL IS IN!");
   } else {
     // When Ball is not in the socket
+    // Serial.println("BALL IS NOT IN!");
 
-
-    // update the AnalogMultiButton object every loop
+    // Read the state of the 10 buttons (keys)
     buttons.update();
 
     if (buttons.isPressed(BUTTON_1))
     {
-      Serial.println("Button 1 is pressed");
+      // Serial.println("Button 1 is pressed");
       prevTime = now;
       ws2812fx.setCustomMode(effect1);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     } else if (buttons.isPressed(BUTTON_2)) {
-      Serial.println("Button 2 is pressed");
+      // Serial.println("Button 2 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect2);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     } else if (buttons.isPressed(BUTTON_3)) {
-      Serial.println("Button 3 is pressed");
+      // Serial.println("Button 3 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect3);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     } else if (buttons.isPressed(BUTTON_4)) {
-      Serial.println("Button 4 is pressed");
+      // Serial.println("Button 4 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect4);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     } else if (buttons.isPressed(BUTTON_5)) {
-      Serial.println("Button 5 is pressed");
+      // Serial.println("Button 5 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect5);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     } else if (buttons.isPressed(BUTTON_6)) {
-      Serial.println("Button 6 is pressed");
+      // Serial.println("Button 6 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect6);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     } else if (buttons.isPressed(BUTTON_7)) {
-      Serial.println("Button 7 is pressed");
+      // Serial.println("Button 7 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect7);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     } else if (buttons.isPressed(BUTTON_8)) {
-      Serial.println("Button 8 is pressed");
+      // Serial.println("Button 8 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect8);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     } else if (buttons.isPressed(BUTTON_9)) {
-      Serial.println("Button 9 is pressed");
+      // Serial.println("Button 9 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect9);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     }
     else if (buttons.isPressed(BUTTON_10)) {
-      Serial.println("Button 10 is pressed");
+      // Serial.println("Button 10 is pressed");
       prevTime = now;
-
       ws2812fx.setCustomMode(effect10);
       ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_CUSTOM, RED, 1, NO_OPTIONS);
     }
     else {
+      // If no buttons are pressed for more than 100 milliseconds, activate "breathing" pattern in
+      // the color that corresponds to the temperature reading
       if (now - prevTime > 100) {
         ws2812fx.setSegment(0, 0, PIXEL_COUNT - 1, FX_MODE_BREATH, color_wheel(tempToColor), 1,
                             true);
       }
     }
-
-    // Serial.println("BALL IS NOT IN!");
   }
-
-
-  //
-  // if (buttons.isPressed(BUTTON_2))
-  // {
-  //   Serial.println("Button 2 is pressed");
-  //
-  //   strip.setPixelColor( 1, strip.Color(0, 0, 255));
-  //   strip.setPixelColor(18, strip.Color(0, 0, 255));
-  //   strip.show();
-  // } else {
-  //   strip.setPixelColor( 1, 0);
-  //   strip.setPixelColor(18, 0);
-  //   strip.show();
-  // }
-
-
-  // // check if BUTTON_RED is pressed
-  // if (buttons.isPressed(BUTTON_RED))
-  // {
-  //   Serial.println("Button red is pressed");
-  // } else {
-  //   // Serial.println("Button red is not pressed");
-  // }
-
-  // check if BUTTON_GREEN has just been pressed this update
-  // if (buttons.onPress(BUTTON_GREEN))
-  // {
-  //   Serial.println("Green has been pressed");
-  // }
-
-  // check if BUTTON_GREEN has just been released this update
-  // if (buttons.onRelease(BUTTON_GREEN))
-  // {
-  //   Serial.println("Green has been released");
-  // }
-
-  // do this if BUTTON_BLUE has been released
-  // if (buttons.onRelease(BUTTON_BLUE))
-  // {
-  //   Serial.println("Blue has been released");
-  // }
-
-  // do this once if BUTTON_BLUE has been held for 1 second
-  // if (buttons.onPressAfter(BUTTON_BLUE, 1000))
-  // {
-  //   Serial.println("Blue has been down for 1 second");
-  // }
-
-  // do this contantly if BUTTON_GREEN has been held down for less than a second
-  // if (buttons.isPressedBefore(BUTTON_GREEN, 1000))
-  // {
-  //   Serial.print("Green is held for ");
-  //   Serial.print(             buttons.getPressDuration());
-  //   Serial.println(" ms");
-  // }
-
-  // do this contantly if BUTTON_RED has been held down for more than a second
-  // if (buttons.isPressedAfter(BUTTON_RED, 1000))
-  // {
-  //   Serial.print("Red is held for ");
-  //   Serial.print(           buttons.getPressDuration());
-  //   Serial.println(" ms");
-  // }
-
-  // do this if BUTTON_BLUE was released, and it was held for 1 second or less
-  // if (buttons.onReleaseBefore(BUTTON_BLUE, 1000))
-  // {
-  //   Serial.println("Blue has been released after less than 1 second of pressing");
-  //   Serial.print("Blue was held for ");
-  //   Serial.print(             buttons.getLastReleasePressDuration());
-  //   Serial.println(" ms");
-  // }
-
-  // do this if BUTTON_BLUE was released, and it was held for 2 seconds or more
-  // if (buttons.onReleaseAfter(BUTTON_BLUE, 2000))
-  // {
-  //   Serial.println("Blue has been released after at least 2 seconds of pressing");
-  //   Serial.print("Blue was held for ");
-  //   Serial.print(             buttons.getLastReleasePressDuration());
-  //   Serial.println(" ms");
-  // }
-
-  // do this if BUTTON_BLUE has been released
-  // if (buttons.onRelease(BUTTON_PURPLE))
-  // {
-  //   Serial.println("Purple has been released");
-  // }
-
-  //
-  // More examples:
-  //
-  // do this once when BUTTON_BLUE is pressed, and again after 1 second
-  // if(buttons.onPressAndAfter(BUTTON_BLUE, 1000)) {}
-  //
-  // do this once if BUTTON_BLUE is held for 1 second, and again every 0.5 seconds after that
-  // if(buttons.onPressAfter(BUTTON_BLUE, 1000, 500)) {}
-  //
-  // do this once when BUTTON_BLUE is pressed, and again after 1 second, and again every 0.5 seconds
-  // after that
-  // useful for cursors or scrolling through menu items
-  // if(buttons.onPressAndAfter(BUTTON_BLUE, 1000, 500)) {}
-  //
-
-  // delay(10);
 }
